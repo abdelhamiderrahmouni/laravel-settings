@@ -13,7 +13,7 @@ return new class extends Migration
 
             $table->foreignId('user_id')
                 ->nullable()
-                ->constrained('users')
+                ->constrained(config('auth.providers.users.model', 'users'))
                 ->nullOnDelete()
                 ->cascadeOnUpdate();
 
