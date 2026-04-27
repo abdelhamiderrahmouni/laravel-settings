@@ -16,13 +16,15 @@ class TestCase extends Orchestra
 
     protected function getEnvironmentSetUp($app): void
     {
-        config()->set('opencode.base_url', 'http://localhost:4096');
         config()->set('database.default', 'testing');
         config()->set('database.connections.testing', [
             'driver' => 'sqlite',
             'database' => ':memory:',
             'prefix' => '',
         ]);
+
+        // Use array cache so tests are fully isolated with no disk state
+        config()->set('settings.cache.driver', 'array');
     }
 
     protected function defineDatabaseMigrations(): void

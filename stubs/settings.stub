@@ -1,0 +1,38 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Settings;
+
+use Settings\Contracts\SettingDefinition;
+
+enum {{ class }}: string implements SettingDefinition
+{
+    case ExampleKey = 'example_key';
+
+    public function group(): string
+    {
+        return '{{ group }}';
+    }
+
+    public function type(): string
+    {
+        return match ($this) {
+            self::ExampleKey => 'string',
+        };
+    }
+
+    public function default(): mixed
+    {
+        return match ($this) {
+            self::ExampleKey => null,
+        };
+    }
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::ExampleKey => 'Example Key',
+        };
+    }
+}
