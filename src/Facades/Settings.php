@@ -13,7 +13,7 @@ use Settings\SettingsManager;
  * @method static void forget(\Settings\Contracts\SettingDefinition $setting)
  * @method static \Settings\SettingsManager for(\Illuminate\Contracts\Auth\Authenticatable $user)
  *
- * @see \Settings\SettingsManager
+ * @see SettingsManager
  */
 class Settings extends Facade
 {

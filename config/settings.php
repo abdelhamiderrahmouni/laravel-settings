@@ -16,7 +16,7 @@ return [
 
     'cache' => [
         'driver' => env('SETTINGS_CACHE_DRIVER', 'file'),
-        'ttl'    => (int) env('SETTINGS_CACHE_TTL', 3600),
+        'ttl' => (int) env('SETTINGS_CACHE_TTL', 3600),
         'prefix' => env('SETTINGS_CACHE_PREFIX', 'settings'),
     ],
 
