@@ -29,7 +29,7 @@ class TestCase extends Orchestra
 
     protected function defineDatabaseMigrations(): void
     {
-        $migration = include __DIR__.'/../database/migrations/0002_01_01_000001_create_settings_table.php.stub';
+        $migration = include __DIR__.'/../database/migrations/0002_01_01_000001_create_settings_table.php';
         $migration->up();
     }
 }
