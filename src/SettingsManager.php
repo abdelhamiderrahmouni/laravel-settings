@@ -35,14 +35,14 @@ class SettingsManager
     /**
      * Retrieve a setting value, cast to the type declared on the enum.
      */
-    public function get(SettingDefinition $setting, mixed $default = null): mixed
+    public function get(SettingDefinition&\BackedEnum $setting, mixed $default = null): mixed
     {
         $cacheKey = $this->cacheKey($setting);
 
         $raw = $this->cache->remember(
             $cacheKey,
             $this->cacheTtl,
-            fn () => $this->fetchRaw($setting),
+            fn (): mixed => $this->fetchRaw($setting),
         );
 
         if ($raw === null) {
@@ -55,20 +55,20 @@ class SettingsManager
     /**
      * Persist a setting value, casting it before storage.
      */
-    public function set(SettingDefinition $setting, mixed $value): void
+    public function set(SettingDefinition&\BackedEnum $setting, mixed $value): void
     {
         $payload = $this->prepareForStorage($value, $setting->type());
 
         $match = [
-            'group'   => $setting->group(),
-            'name'    => $setting->value,
+            'group' => $setting->group(),
+            'name' => $setting->value,
             'user_id' => $this->userId(),
         ];
 
         $this->db->table($this->table)->updateOrInsert(
             $match,
             [
-                'payload'    => json_encode($payload),
+                'payload' => json_encode($payload),
                 'updated_at' => now(),
                 'created_at' => now(),
             ],
@@ -80,7 +80,7 @@ class SettingsManager
     /**
      * Delete a setting row. get() will return the default afterwards.
      */
-    public function forget(SettingDefinition $setting): void
+    public function forget(SettingDefinition&\BackedEnum $setting): void
     {
         $query = $this->db->table($this->table)
             ->where('group', $setting->group())
@@ -101,7 +101,7 @@ class SettingsManager
     // Internals
     // -------------------------------------------------------------------------
 
-    private function fetchRaw(SettingDefinition $setting): mixed
+    private function fetchRaw(SettingDefinition&\BackedEnum $setting): mixed
     {
         $query = $this->db->table($this->table)
             ->where('group', $setting->group())
@@ -119,7 +119,7 @@ class SettingsManager
             return null;
         }
 
-        $decoded = json_decode($row->payload, associative: true);
+        $decoded = json_decode((string) $row->payload, associative: true);
 
         return $decoded['value'] ?? null;
     }
@@ -142,12 +142,12 @@ class SettingsManager
         return ['value' => $cast];
     }
 
-    private function cacheKey(SettingDefinition $setting): string
+    private function cacheKey(SettingDefinition&\BackedEnum $setting): string
     {
-        $key = "{$this->cachePrefix}:{$setting->group()}.{$setting->value}";
+        $key = sprintf('%s:%s.%s', $this->cachePrefix, $setting->group(), $setting->value);
 
         if ($this->userId() !== null) {
-            $key .= ":{$this->userId()}";
+            $key .= ':'.$this->userId();
         }
 
         return $key;
