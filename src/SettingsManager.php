@@ -33,10 +33,23 @@ class SettingsManager
     }
 
     /**
-     * Retrieve a setting value, cast to the type declared on the enum.
+     * Retrieve a setting value or all settings for an enum class.
+     *
+     * - Pass an enum case to get a single typed value.
+     * - Pass an enum class-string to get all settings in that group as an
+     *   array keyed by the enum case value.
+     *
+     * @template T of \BackedEnum&SettingDefinition
+     * @param  (T)|class-string<T>  $setting
+     * @return ($setting is class-string ? array<string, mixed> : mixed)
      */
-    public function get(SettingDefinition&\BackedEnum $setting, mixed $default = null): mixed
+    public function get(SettingDefinition|\BackedEnum|string $setting, mixed $default = null): mixed
     {
+        if (is_string($setting)) {
+            return $this->getGroup($setting);
+        }
+
+        /** @var SettingDefinition&\BackedEnum $setting */
         $cacheKey = $this->cacheKey($setting);
 
         $raw = $this->cache->remember(
@@ -53,28 +66,26 @@ class SettingsManager
     }
 
     /**
-     * Persist a setting value, casting it before storage.
+     * Persist a setting value or a batch of values for an enum class.
+     *
+     * - Pass an enum case + scalar value to set a single setting.
+     * - Pass an enum class-string + array to set multiple settings at once.
+     *   Each key in $value must match an enum case value; unknown keys are ignored.
+     *
+     * @template T of \BackedEnum&SettingDefinition
+     * @param  (T)|class-string<T>  $setting
+     * @param  mixed|array<string, mixed>  $value
      */
-    public function set(SettingDefinition&\BackedEnum $setting, mixed $value): void
+    public function set(SettingDefinition|\BackedEnum|string $setting, mixed $value): void
     {
-        $payload = $this->prepareForStorage($value, $setting->type());
+        if (is_string($setting)) {
+            $this->setGroup($setting, (array) $value);
 
-        $match = [
-            'group' => $setting->group(),
-            'name' => $setting->value,
-            'user_id' => $this->userId(),
-        ];
+            return;
+        }
 
-        $this->db->table($this->table)->updateOrInsert(
-            $match,
-            [
-                'payload' => json_encode($payload),
-                'updated_at' => now(),
-                'created_at' => now(),
-            ],
-        );
-
-        $this->cache->forget($this->cacheKey($setting));
+        /** @var SettingDefinition&\BackedEnum $setting */
+        $this->persistSingle($setting, $value);
     }
 
     /**
@@ -98,8 +109,122 @@ class SettingsManager
     }
 
     // -------------------------------------------------------------------------
+    // Bulk operations
+    // -------------------------------------------------------------------------
+
+    /**
+     * Fetch all settings for an enum class in a single query.
+     * Returns an array keyed by enum case value, with each value cast to its declared type.
+     *
+     * @template T of \BackedEnum&SettingDefinition
+     * @param  class-string<T>  $enumClass
+     * @return array<string, mixed>
+     */
+    private function getGroup(string $enumClass): array
+    {
+        $this->assertValidSettingEnum($enumClass);
+
+        /** @var array<T> $cases */
+        $cases = $enumClass::cases();
+
+        $group = $cases[0]->group();
+
+        $query = $this->db->table($this->table)->where('group', $group);
+
+        if ($this->userId() === null) {
+            $query->whereNull('user_id');
+        } else {
+            $query->where('user_id', $this->userId());
+        }
+
+        $rows = $query->get()->keyBy('name');
+
+        $result = [];
+
+        foreach ($cases as $case) {
+            $cacheKey = $this->cacheKey($case);
+
+            $result[$case->value] = $this->cache->remember(
+                $cacheKey,
+                $this->cacheTtl,
+                function () use ($case, $rows): mixed {
+                    $row = $rows->get($case->value);
+
+                    if ($row === null) {
+                        return null;
+                    }
+
+                    $decoded = json_decode((string) $row->payload, associative: true);
+
+                    return $decoded['value'] ?? null;
+                },
+            );
+
+            if ($result[$case->value] === null) {
+                $result[$case->value] = $case->default();
+            } else {
+                $result[$case->value] = $this->cast($result[$case->value], $case->type());
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Persist multiple settings for an enum class.
+     * Keys in $data must match enum case values; unrecognised keys are silently ignored.
+     *
+     * @template T of \BackedEnum&SettingDefinition
+     * @param  class-string<T>  $enumClass
+     * @param  array<string, mixed>  $data
+     */
+    private function setGroup(string $enumClass, array $data): void
+    {
+        $this->assertValidSettingEnum($enumClass);
+
+        /** @var array<T> $cases */
+        $cases = $enumClass::cases();
+
+        $casesByValue = array_column($cases, null, 'value');
+
+        foreach ($data as $key => $value) {
+            if (! isset($casesByValue[$key])) {
+                continue;
+            }
+
+            $this->persistSingle($casesByValue[$key], $value);
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Internals
     // -------------------------------------------------------------------------
+
+    /**
+     * @param  SettingDefinition&\BackedEnum  $setting
+     */
+    private function persistSingle(SettingDefinition $setting, mixed $value): void
+    {
+        /** @var SettingDefinition&\BackedEnum $setting */
+        $payload = $this->prepareForStorage($value, $setting->type());
+
+        $match = [
+            'group'   => $setting->group(),
+            'name'    => $setting->value,
+            'user_id' => $this->userId(),
+        ];
+
+        $this->db->table($this->table)->updateOrInsert(
+            $match,
+            [
+                'payload'    => json_encode($payload),
+                'updated_at' => now(),
+                'created_at' => now(),
+            ],
+        );
+
+        $this->cache->forget($this->cacheKey($setting));
+    }
 
     private function fetchRaw(SettingDefinition&\BackedEnum $setting): mixed
     {
@@ -127,19 +252,17 @@ class SettingsManager
     private function cast(mixed $value, string $type): mixed
     {
         return match ($type) {
-            'integer', 'int' => (int) $value,
-            'boolean', 'bool' => (bool) $value,
-            'float', 'double', 'real' => (float) $value,
-            'array', 'json' => is_array($value) ? $value : json_decode((string) $value, associative: true),
-            default => (string) $value,
+            'integer', 'int'             => (int) $value,
+            'boolean', 'bool'            => (bool) $value,
+            'float', 'double', 'real'    => (float) $value,
+            'array', 'json'              => is_array($value) ? $value : json_decode((string) $value, associative: true),
+            default                      => (string) $value,
         };
     }
 
     private function prepareForStorage(mixed $value, string $type): array
     {
-        $cast = $this->cast($value, $type);
-
-        return ['value' => $cast];
+        return ['value' => $this->cast($value, $type)];
     }
 
     private function cacheKey(SettingDefinition&\BackedEnum $setting): string
@@ -156,5 +279,21 @@ class SettingsManager
     private function userId(): int|string|null
     {
         return $this->user?->getAuthIdentifier();
+    }
+
+    /**
+     * Assert that a class-string is a backed enum implementing SettingDefinition.
+     *
+     * @param  class-string  $enumClass
+     */
+    private function assertValidSettingEnum(string $enumClass): void
+    {
+        if (! enum_exists($enumClass)) {
+            throw new \InvalidArgumentException("[{$enumClass}] is not an enum.");
+        }
+
+        if (! is_a($enumClass, SettingDefinition::class, allow_string: true)) {
+            throw new \InvalidArgumentException("[{$enumClass}] does not implement SettingDefinition.");
+        }
     }
 }

@@ -114,12 +114,39 @@ Settings::get(GeneralSettings::SiteName);
 Settings::get(GeneralSettings::SiteName, 'Fallback');
 ```
 
+#### Reading all settings in a group
+
+Pass the enum class-string to retrieve every setting in the group as a single array. One DB query is issued and all values are cast and cached individually.
+
+```php
+$settings = Settings::get(GeneralSettings::class);
+// [
+//     'site_name'        => 'My App',
+//     'maintenance_mode' => false,
+//     'max_upload_size'  => 10,
+// ]
+```
+
+Any key without a DB record falls back to the enum's declared default.
+
 ### Writing settings
 
 ```php
 Settings::set(GeneralSettings::SiteName, 'My App');
 Settings::set(GeneralSettings::MaintenanceMode, true);
 Settings::set(GeneralSettings::MaxUploadSize, 25);
+```
+
+#### Writing multiple settings at once
+
+Pass the enum class-string and an array of `case value => value` pairs. Unknown keys are silently ignored; each recognised key is validated against the enum.
+
+```php
+Settings::set(GeneralSettings::class, [
+    'site_name'        => 'My App',
+    'maintenance_mode' => true,
+    'max_upload_size'  => 25,
+]);
 ```
 
 ### Deleting settings
@@ -131,12 +158,16 @@ Settings::forget(GeneralSettings::SiteName);
 
 ### Per-user settings
 
-Scope any operation to a specific user with `for()`:
+Scope any operation to a specific user with `for()`. This includes bulk get and set:
 
 ```php
 Settings::for($user)->get(GeneralSettings::SiteName);
 Settings::for($user)->set(GeneralSettings::SiteName, 'Their App');
 Settings::for($user)->forget(GeneralSettings::SiteName);
+
+// Bulk operations are scoped too
+Settings::for($user)->get(GeneralSettings::class);
+Settings::for($user)->set(GeneralSettings::class, ['site_name' => 'Their App']);
 ```
 
 Global settings and per-user settings are stored and retrieved independently.

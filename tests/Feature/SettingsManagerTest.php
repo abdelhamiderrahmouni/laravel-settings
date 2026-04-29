@@ -243,3 +243,106 @@ it('injectable instance behaves the same as the facade', function (): void {
 
     expect($manager->get(TestSettings::SiteName))->toBe('Injected');
 });
+
+// ---------------------------------------------------------------------------
+// Bulk get — class-string
+// ---------------------------------------------------------------------------
+
+it('returns all settings for an enum class with their defaults when none are stored', function (): void {
+    $result = Settings::get(TestSettings::class);
+
+    expect($result)->toBe([
+        'site_name'  => 'Default App',
+        'debug_mode' => false,
+        'max_items'  => 10,
+        'ratio'      => 1.5,
+        'tags'       => [],
+    ]);
+});
+
+it('returns stored values mixed with defaults for an enum class', function (): void {
+    Settings::set(TestSettings::SiteName, 'My App');
+    Settings::set(TestSettings::MaxItems, 99);
+
+    $result = Settings::get(TestSettings::class);
+
+    expect($result['site_name'])->toBe('My App')
+        ->and($result['max_items'])->toBe(99)
+        ->and($result['debug_mode'])->toBe(false)  // default
+        ->and($result['ratio'])->toBe(1.5)          // default
+        ->and($result['tags'])->toBe([]);            // default
+});
+
+it('casts all values correctly in a bulk get', function (): void {
+    Settings::set(TestSettings::SiteName, 'Typed');
+    Settings::set(TestSettings::DebugMode, true);
+    Settings::set(TestSettings::MaxItems, 7);
+    Settings::set(TestSettings::Ratio, 2.5);
+    Settings::set(TestSettings::Tags, ['a', 'b']);
+
+    $result = Settings::get(TestSettings::class);
+
+    expect($result['site_name'])->toBeString()->toBe('Typed')
+        ->and($result['debug_mode'])->toBeBool()->toBeTrue()
+        ->and($result['max_items'])->toBeInt()->toBe(7)
+        ->and($result['ratio'])->toBeFloat()->toBe(2.5)
+        ->and($result['tags'])->toBe(['a', 'b']);
+});
+
+it('bulk get respects per-user scoping', function (): void {
+    $user = makeUser(1);
+
+    Settings::set(TestSettings::SiteName, 'Global');
+    Settings::for($user)->set(TestSettings::SiteName, 'User');
+
+    $global = Settings::get(TestSettings::class);
+    $scoped = Settings::for($user)->get(TestSettings::class);
+
+    expect($global['site_name'])->toBe('Global')
+        ->and($scoped['site_name'])->toBe('User');
+});
+
+it('throws when passing a non-enum class-string to get()', function (): void {
+    expect(fn () => Settings::get(\stdClass::class))->toThrow(\InvalidArgumentException::class);
+});
+
+// ---------------------------------------------------------------------------
+// Bulk set — class-string
+// ---------------------------------------------------------------------------
+
+it('sets multiple settings at once from an array', function (): void {
+    Settings::set(TestSettings::class, [
+        'site_name'  => 'Bulk App',
+        'debug_mode' => true,
+        'max_items'  => 50,
+    ]);
+
+    expect(Settings::get(TestSettings::SiteName))->toBe('Bulk App')
+        ->and(Settings::get(TestSettings::DebugMode))->toBeTrue()
+        ->and(Settings::get(TestSettings::MaxItems))->toBe(50)
+        ->and(Settings::get(TestSettings::Ratio))->toBe(1.5);  // untouched default
+});
+
+it('silently ignores unknown keys in a bulk set', function (): void {
+    Settings::set(TestSettings::class, [
+        'site_name'   => 'Valid',
+        'nonexistent' => 'Ignored',
+    ]);
+
+    expect(Settings::get(TestSettings::SiteName))->toBe('Valid');
+});
+
+it('bulk set respects per-user scoping', function (): void {
+    $user = makeUser(1);
+
+    Settings::for($user)->set(TestSettings::class, [
+        'site_name' => 'User Bulk',
+    ]);
+
+    expect(Settings::get(TestSettings::SiteName))->toBe('Default App')
+        ->and(Settings::for($user)->get(TestSettings::SiteName))->toBe('User Bulk');
+});
+
+it('throws when passing a non-enum class-string to set()', function (): void {
+    expect(fn () => Settings::set(\stdClass::class, []))->toThrow(\InvalidArgumentException::class);
+});
